@@ -1,13 +1,15 @@
-// Files list: searchable table with pagination, plus import.
+// Files list: id lookup with a deleted filter and pagination, plus
+// import.
 //
-// The search matches by name or by exact id (pasting the id from
-// the editor URL jumps straight to the file). `teamId` is not
-// offered as a selector here: it only arrives through the URL,
-// from the "view files" link on a team page, and shows as a
-// removable active filter. Every value is painted as text. JSON
-// responses use camelCase (`nextSince`, …).
+// Lookup is by exact id (primary key); substring search has no
+// usable index at PRO scale. `teamId`/`projectId` are not offered
+// as selectors here: they only arrive through the URL, from the
+// "view files" links, and show as removable active filters. Every
+// value is painted as text. JSON responses use camelCase
+// (`nextSince`, …).
 
 import { rpc, transferUrl } from "../api.js";
+import { deletedParams, deletedSelect } from "../components/filters.js";
 import { renderHeader } from "../components/header.js";
 import { renderTable } from "../components/table.js";
 import { showToast } from "../components/toast.js";
@@ -20,6 +22,7 @@ const COLUMNS = [
   { key: "name", label: "Name", class: "admin-cell-name admin-cell-fill" },
   { key: "projectName", label: "Project", class: "admin-cell-project" },
   { key: "teamName", label: "Team", class: "admin-cell-team" },
+  { key: "createdAt", label: "Created", class: "admin-cell-date" },
   { key: "modifiedAt", label: "Modified", class: "admin-cell-date" },
   { key: "deletedAt", label: "Deleted", class: "admin-cell-date" },
   { key: "status", label: "Status", class: "admin-cell-status" },
@@ -31,9 +34,10 @@ function formatDate(iso) {
 }
 
 export function filesPage(root, { onNavigate }) {
-  const fromUrl = readQuery(["search", "teamId", "projectId"]);
+  const fromUrl = readQuery(["lookup", "deleted", "teamId", "projectId"]);
   const state = {
-    search: fromUrl.search ?? "",
+    lookup: fromUrl.lookup ?? "",
+    deleted: fromUrl.deleted ?? "",
     teamId: fromUrl.teamId ?? null,
     teamName: null,
     projectId: fromUrl.projectId ?? null,
@@ -51,24 +55,28 @@ export function filesPage(root, { onNavigate }) {
   const controls = document.createElement("div");
   controls.className = "admin-controls";
 
-  const searchInput = document.createElement("input");
-  searchInput.className = "admin-input";
-  searchInput.type = "search";
-  searchInput.placeholder = "Search by name or id…";
-  searchInput.setAttribute("aria-label", "Search by file name or id");
-  searchInput.value = state.search;
-  searchInput.addEventListener("keydown", (event) => {
+  const lookupInput = document.createElement("input");
+  lookupInput.className = "admin-input";
+  lookupInput.type = "search";
+  lookupInput.placeholder = "Look up by id…";
+  lookupInput.setAttribute("aria-label", "Look up by file id");
+  lookupInput.value = state.lookup;
+  lookupInput.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
       searchButton.click();
     }
   });
-  controls.appendChild(searchInput);
+  controls.appendChild(lookupInput);
+
+  const deleted = deletedSelect("files", state.deleted);
+  controls.appendChild(deleted);
 
   const searchButton = document.createElement("button");
   searchButton.className = "admin-button";
   searchButton.textContent = "Search";
   searchButton.addEventListener("click", () => {
-    state.search = searchInput.value.trim();
+    state.lookup = lookupInput.value.trim();
+    state.deleted = deleted.value;
     state.nextSince = null;
     state.nextId = null;
     load();
@@ -79,8 +87,10 @@ export function filesPage(root, { onNavigate }) {
   clearButton.className = "admin-button admin-button-ghost";
   clearButton.textContent = "Clear";
   clearButton.addEventListener("click", () => {
-    searchInput.value = "";
-    state.search = "";
+    lookupInput.value = "";
+    deleted.value = "";
+    state.lookup = "";
+    state.deleted = "";
     state.teamId = null;
     state.teamName = null;
     state.projectId = null;
@@ -175,6 +185,7 @@ export function filesPage(root, { onNavigate }) {
     if (state.items.length > 0) {
       const rows = state.items.map((item) => ({
         ...item,
+        createdAt: formatDate(item.createdAt),
         modifiedAt: formatDate(item.modifiedAt),
         deletedAt: item.deletedAt ? formatDate(item.deletedAt) : "—",
         status: item.deletedAt ? "deleted" : "active",
@@ -186,7 +197,7 @@ export function filesPage(root, { onNavigate }) {
       const bodyRows = table.querySelector("tbody").rows;
       for (let i = 0; i < bodyRows.length; i++) {
         const row = bodyRows[i];
-        row.cells[5].replaceChildren(statusCell(rows[i].status));
+        row.cells[6].replaceChildren(statusCell(rows[i].status));
         row.addEventListener("click", () =>
           onNavigate(detailUrl("file", state.items[i].id)));
       }
@@ -203,10 +214,10 @@ export function filesPage(root, { onNavigate }) {
   async function load({ append = false } = {}) {
     state.loading = true;
     paint();
-    writeQuery({ search: state.search, teamId: state.teamId, projectId: state.projectId });
-    const params = { limit: PAGE_SIZE };
-    if (state.search) {
-      params.search = state.search;
+    writeQuery({ lookup: state.lookup, deleted: state.deleted, teamId: state.teamId, projectId: state.projectId });
+    const params = { limit: PAGE_SIZE, ...deletedParams(state.deleted) };
+    if (state.lookup) {
+      params.id = state.lookup;
     }
     if (state.teamId) {
       params.teamId = state.teamId;
@@ -229,7 +240,7 @@ export function filesPage(root, { onNavigate }) {
       }
       if (state.projectId && state.projectName === null) {
         try {
-          const found = await rpc("get-projects", { search: state.projectId });
+          const found = await rpc("get-projects", { id: state.projectId });
           state.projectName = (found.items ?? []).find((item) => item.id === state.projectId)?.name ?? null;
         } catch {
           state.projectName = null;

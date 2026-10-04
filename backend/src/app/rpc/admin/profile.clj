@@ -49,10 +49,9 @@
    [:since-id {:optional true} ::sm/uuid]
    [:limit {:optional true}
     [:and ::sm/int [:fn #(<= 1 % profiles-max-limit)]]]
-   [:search {:optional true} ::sm/text]
-   [:is-blocked {:optional true} ::sm/boolean]
-   [:is-active {:optional true} ::sm/boolean]
-   [:is-demo {:optional true} ::sm/boolean]])
+   [:id {:optional true} ::sm/uuid]
+   [:email {:optional true} ::sm/text]
+   [:deleted {:optional true} ::sm/boolean]])
 
 (def schema:get-profiles-result
   [:map
@@ -61,21 +60,27 @@
    [:next-id {:optional true} ::sm/uuid]])
 
 (defn- build-profiles-list-query
-  [{:keys [since since-id search is-blocked is-active is-demo limit]
+  "List profiles newest-first with keyset pagination.
+
+  Lookup is by exact indexed fields only (`id`, exact `email`):
+  substring search has no usable index at PRO scale. The `:deleted`
+  flag selects all (absent), only deleted (true) or only live
+  (false) rows."
+  [{:keys [since since-id id email deleted limit]
     :or {limit profiles-default-limit}}]
   (let [clauses    (keep identity
-                         [(when (and (string? search) (not (str/blank? search)))
-                            {:where "(email ILIKE ? OR fullname ILIKE ?)"
-                             :params [(str "%" search "%") (str "%" search "%")]})
-                          (when (some? is-blocked)
-                            {:where "is_blocked IS NOT DISTINCT FROM ?"
-                             :params [is-blocked]})
-                          (when (some? is-active)
-                            {:where "is_active = ?"
-                             :params [is-active]})
-                          (when (some? is-demo)
-                            {:where "is_demo = ?"
-                             :params [is-demo]})
+                         [(when (uuid? id)
+                            {:where "id = ?"
+                             :params [id]})
+                          (when (and (string? email) (not (str/blank? email)))
+                            {:where "email = ?"
+                             :params [(str/lower (str/trim email))]})
+                          (when (some? deleted)
+                            (if deleted
+                              {:where "deleted_at IS NOT NULL"
+                               :params []}
+                              {:where "deleted_at IS NULL"
+                               :params []}))
                           (when since
                             {:where "(created_at, id) < (?::timestamptz, ?::uuid)"
                              :params [since (or since-id uuid/zero)]})])

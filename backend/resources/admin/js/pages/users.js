@@ -1,9 +1,11 @@
-// Users list: searchable table with flag filters and pagination.
-// Every value is painted as text; status badges use a fixed class
-// map, never the raw value. JSON responses use camelCase
-// (`nextSince`, …).
+// Users list: id/email lookup with a deleted filter and pagination.
+// Lookup is by exact id or exact email (both indexed); substring
+// search has no usable index at PRO scale. Every value is painted
+// as text; status badges use a fixed class map, never the raw
+// value. JSON responses use camelCase (`nextSince`, …).
 
 import { rpc } from "../api.js";
+import { deletedParams, deletedSelect } from "../components/filters.js";
 import { renderHeader } from "../components/header.js";
 import { renderTable } from "../components/table.js";
 import { showToast } from "../components/toast.js";
@@ -25,12 +27,6 @@ const COLUMNS = [
   { key: "createdAt", label: "Created", class: "admin-cell-date" },
   { key: "deletedAt", label: "Deleted", class: "admin-cell-date" },
   { key: "status", label: "Status", class: "admin-cell-status" },
-];
-
-const FLAG_FILTERS = [
-  { param: "isBlocked", label: "Blocked" },
-  { param: "isActive", label: "Active" },
-  { param: "isDemo", label: "Demo" },
 ];
 
 function formatDate(iso) {
@@ -61,33 +57,11 @@ export function statusCell(status) {
   return badge;
 }
 
-function flagSelect(filter) {
-  const select = document.createElement("select");
-  select.className = "admin-select";
-  select.setAttribute("aria-label", `Filter by ${filter.label.toLowerCase()}`);
-  for (const [value, label] of [
-    ["", `All ${filter.label.toLowerCase()} states`],
-    ["true", `${filter.label}: yes`],
-    ["false", `${filter.label}: no`],
-  ]) {
-    const option = document.createElement("option");
-    option.value = value;
-    option.textContent = label;
-    select.appendChild(option);
-  }
-  return select;
-}
-
 export function usersPage(root, { onNavigate }) {
-  const fromUrl = readQuery(["search", "isBlocked", "isActive", "isDemo"]);
-  const flagOrEmpty = (value) => (value === "true" || value === "false" ? value : "");
+  const fromUrl = readQuery(["lookup", "deleted"]);
   const state = {
-    search: fromUrl.search ?? "",
-    flags: {
-      isBlocked: flagOrEmpty(fromUrl.isBlocked),
-      isActive: flagOrEmpty(fromUrl.isActive),
-      isDemo: flagOrEmpty(fromUrl.isDemo),
-    },
+    lookup: fromUrl.lookup ?? "",
+    deleted: fromUrl.deleted ?? "",
     items: [],
     nextSince: null,
     nextId: null,
@@ -100,35 +74,28 @@ export function usersPage(root, { onNavigate }) {
   const controls = document.createElement("div");
   controls.className = "admin-controls";
 
-  const searchInput = document.createElement("input");
-  searchInput.className = "admin-input";
-  searchInput.type = "search";
-  searchInput.placeholder = "Search email or name…";
-  searchInput.setAttribute("aria-label", "Search by email or name");
-  searchInput.value = state.search;
-  searchInput.addEventListener("keydown", (event) => {
+  const lookupInput = document.createElement("input");
+  lookupInput.className = "admin-input";
+  lookupInput.type = "search";
+  lookupInput.placeholder = "Look up by id or exact email…";
+  lookupInput.setAttribute("aria-label", "Look up by id or exact email");
+  lookupInput.value = state.lookup;
+  lookupInput.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
       searchButton.click();
     }
   });
-  controls.appendChild(searchInput);
+  controls.appendChild(lookupInput);
 
-  const selects = {};
-  for (const filter of FLAG_FILTERS) {
-    const select = flagSelect(filter);
-    select.value = state.flags[filter.param];
-    selects[filter.param] = select;
-    controls.appendChild(select);
-  }
+  const deleted = deletedSelect("users", state.deleted);
+  controls.appendChild(deleted);
 
   const searchButton = document.createElement("button");
   searchButton.className = "admin-button";
   searchButton.textContent = "Search";
   searchButton.addEventListener("click", () => {
-    state.search = searchInput.value.trim();
-    for (const filter of FLAG_FILTERS) {
-      state.flags[filter.param] = selects[filter.param].value;
-    }
+    state.lookup = lookupInput.value.trim();
+    state.deleted = deleted.value;
     state.nextSince = null;
     state.nextId = null;
     load();
@@ -139,12 +106,10 @@ export function usersPage(root, { onNavigate }) {
   clearButton.className = "admin-button admin-button-ghost";
   clearButton.textContent = "Clear";
   clearButton.addEventListener("click", () => {
-    searchInput.value = "";
-    for (const filter of FLAG_FILTERS) {
-      selects[filter.param].value = "";
-      state.flags[filter.param] = "";
-    }
-    state.search = "";
+    lookupInput.value = "";
+    deleted.value = "";
+    state.lookup = "";
+    state.deleted = "";
     state.nextSince = null;
     state.nextId = null;
     load();
@@ -211,14 +176,15 @@ export function usersPage(root, { onNavigate }) {
   async function load({ append = false } = {}) {
     state.loading = true;
     paint();
-    writeQuery({ search: state.search, ...state.flags });
-    const params = { limit: PAGE_SIZE };
-    if (state.search) {
-      params.search = state.search;
-    }
-    for (const filter of FLAG_FILTERS) {
-      if (state.flags[filter.param] !== "") {
-        params[filter.param] = state.flags[filter.param] === "true";
+    writeQuery({ lookup: state.lookup, deleted: state.deleted });
+    const params = { limit: PAGE_SIZE, ...deletedParams(state.deleted) };
+    if (state.lookup) {
+      // Exact email (unique index) when it looks like one,
+      // otherwise an exact id (primary key).
+      if (state.lookup.includes("@")) {
+        params.email = state.lookup;
+      } else {
+        params.id = state.lookup;
       }
     }
     if (append && state.nextSince) {

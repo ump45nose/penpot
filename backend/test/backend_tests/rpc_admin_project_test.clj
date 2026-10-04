@@ -73,7 +73,7 @@
       (th/ex-code cause))))
 
 (defn- create-project!
-  "Create a profile, a team and a project with a searchable name.
+  "Create a profile, a team and a project with a distinct name.
   Returns the ids plus the profile."
   [i]
   (let [profile (th/create-profile* i)
@@ -104,9 +104,9 @@
                                  "get-projects" {}))))))
 
 (t/deftest token-with-granted-superuser-passes
-  (let [{:keys [profile]} (create-project! 1)
+  (let [{:keys [profile project]} (create-project! 1)
         out (call #{} :token (:id profile) #{"superuser"}
-                  "get-projects" {:search "searchable-project-1"})]
+                  "get-projects" {:id (:id project)})]
     (t/is (= 1 (count (:items out))))))
 
 (t/deftest anonymous-rejected
@@ -124,7 +124,7 @@
                                   :project-id (:id project)})
         _     (:id file)
         run   (as-superuser profile)
-        out   (run "get-projects" {:search (:name project)})
+        out   (run "get-projects" {:id (:id project)})
         item  (first (:items out))]
     (t/is (= 1 (count (:items out))))
     (t/is (= (:id project) (:id item)))
@@ -140,8 +140,25 @@
   (let [{:keys [profile project]} (create-project! 1)
         _     (create-project! 2)
         run   (as-superuser profile)
-        out   (run "get-projects" {:search (str (:id project))})]
+        out   (run "get-projects" {:id (:id project)})]
     (t/is (= [(:id project)] (mapv :id (:items out))))))
+
+(t/deftest list-filters-by-deleted
+  (let [{:keys [profile project]} (create-project! 1)
+        _     (mark-deleted! :project (:id project))
+        run   (as-superuser profile)]
+    (let [out (run "get-projects" {:deleted true})]
+      (t/is (= [(:id project)] (mapv :id (:items out)))))
+    (let [out (run "get-projects" {:deleted false})
+          ids (set (map :id (:items out)))]
+      (t/is (contains? ids (:default-project-id profile))
+            "the live default project lists")
+      (t/is (not (contains? ids (:id project)))
+            "the deleted project is excluded"))
+    (let [out (run "get-projects" {})
+          ids (set (map :id (:items out)))]
+      (t/is (contains? ids (:id project))
+            "without the flag, deleted rows still list"))))
 
 (t/deftest list-filters-by-team
   (let [{:keys [profile team project]} (create-project! 1)
@@ -156,7 +173,7 @@
   (let [{:keys [profile project]} (create-project! 1)
         _     (mark-deleted! :project (:id project))
         run   (as-superuser profile)
-        out   (run "get-projects" {:search (:name project)})
+        out   (run "get-projects" {:id (:id project)})
         item  (first (:items out))]
     (t/is (= 1 (count (:items out))))
     (t/is (= (:id project) (:id item)))
@@ -166,7 +183,7 @@
   (let [{:keys [profile team project]} (create-project! 1)
         _     (mark-deleted! :team (:id team))
         run   (as-superuser profile)
-        out   (run "get-projects" {:search (:name project)})]
+        out   (run "get-projects" {:id (:id project)})]
     (t/is (= [] (:items out)))))
 
 (t/deftest list-counts-only-live-files
@@ -174,21 +191,21 @@
         file  (th/create-file* 1 {:profile-id (:id profile)
                                   :project-id (:id project)})
         run   (as-superuser profile)
-        before (run "get-projects" {:search (:name project)})]
+        before (run "get-projects" {:id (:id project)})]
     (t/is (= 1 (:total-files (first (:items before)))))
     (th/mark-file-deleted* {:id (:id file)})
-    (let [after (run "get-projects" {:search (:name project)})]
+    (let [after (run "get-projects" {:id (:id project)})]
       (t/is (= 0 (:total-files (first (:items after))))))))
 
-(t/deftest list-search-and-pagination
+(t/deftest list-paginates
   (let [{:keys [profile]} (create-project! 1)
         _     (create-project! 2)
         run   (as-superuser profile)
-        page1 (run "get-projects" {:search "searchable-project" :limit 1})]
+        page1 (run "get-projects" {:limit 1})]
     (t/is (= 1 (count (:items page1))))
     (t/is (some? (:next-since page1)))
     (t/is (some? (:next-id page1)))
-    (let [page2 (run "get-projects" {:search "searchable-project" :limit 1
+    (let [page2 (run "get-projects" {:limit 1
                                      :since (:next-since page1)
                                      :since-id (:next-id page1)})]
       (t/is (= 1 (count (:items page2))))

@@ -102,7 +102,7 @@
   (let [admin (th/create-profile* 1)
         team  (th/create-team* 1 {:profile-id (:id admin)})
         out   (call #{} :token (:id admin) #{"superuser"}
-                    "get-teams" {:search (:name team)})]
+                    "get-teams" {:id (:id team)})]
     (t/is (= [(:id team)] (mapv :id (:items out))))))
 
 (t/deftest anonymous-rejected
@@ -124,7 +124,7 @@
   (let [admin (th/create-profile* 1)
         team  (th/create-team* 1 {:profile-id (:id admin)})
         run   (as-superuser admin)
-        out   (run "get-teams" {:search (:name team)})
+        out   (run "get-teams" {:id (:id team)})
         item  (first (:items out))]
     (t/is (= 1 (count (:items out))))
     (t/is (= (:id team) (:id item)))
@@ -139,22 +139,36 @@
         team  (th/create-team* 1 {:profile-id (:id admin)})
         _     (db/update! th/*system* :team {:deleted-at (ct/now)} {:id (:id team)})
         run   (as-superuser admin)
-        out   (run "get-teams" {:search (:name team)})
+        out   (run "get-teams" {:id (:id team)})
         item  (first (:items out))]
     (t/is (= 1 (count (:items out))))
     (t/is (= (:id team) (:id item)))
     (t/is (some? (:deleted-at item)))))
 
-(t/deftest list-search-and-pagination
+(t/deftest list-filters-by-deleted
+  (let [admin (th/create-profile* 1)
+        team  (th/create-team* 1 {:profile-id (:id admin)})
+        _     (db/update! th/*system* :team {:deleted-at (ct/now)} {:id (:id team)})
+        run   (as-superuser admin)]
+    (let [out (run "get-teams" {:deleted true})]
+      (t/is (= [(:id team)] (mapv :id (:items out)))))
+    (let [out (run "get-teams" {:deleted false})]
+      (t/is (= [(:default-team-id admin)] (mapv :id (:items out)))
+            "only the live default team lists"))
+    (let [out (run "get-teams" {})]
+      (t/is (= 2 (count (:items out)))
+            "without the flag, deleted rows still list"))))
+
+(t/deftest list-paginates
   (let [admin (th/create-profile* 1)
         _t1   (th/create-team* 1 {:profile-id (:id admin)})
         _t2   (th/create-team* 2 {:profile-id (:id admin)})
         run   (as-superuser admin)
-        page1 (run "get-teams" {:search "team" :limit 1})]
+        page1 (run "get-teams" {:limit 1})]
     (t/is (= 1 (count (:items page1))))
     (t/is (some? (:next-since page1)))
     (t/is (some? (:next-id page1)))
-    (let [page2 (run "get-teams" {:search "team" :limit 1
+    (let [page2 (run "get-teams" {:limit 1
                                   :since (:next-since page1)
                                   :since-id (:next-id page1)})]
       (t/is (= 1 (count (:items page2))))
@@ -166,7 +180,7 @@
         team  (th/create-team* 1 {:profile-id (:id admin)})
         _     (th/create-team* 2 {:profile-id (:id admin)})
         run   (as-superuser admin)
-        out   (run "get-teams" {:search (str (:id team))})]
+        out   (run "get-teams" {:id (:id team)})]
     (t/is (= [(:id team)] (mapv :id (:items out))))))
 
 ;; ----------------------------------------------------------------

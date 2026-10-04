@@ -45,7 +45,8 @@
    [:since-id {:optional true} ::sm/uuid]
    [:limit {:optional true}
     [:and ::sm/int [:fn #(<= 1 % teams-max-limit)]]]
-   [:search {:optional true} ::sm/text]])
+   [:id {:optional true} ::sm/uuid]
+   [:deleted {:optional true} ::sm/boolean]])
 
 (def schema:get-teams-result
   [:map
@@ -54,17 +55,23 @@
    [:next-id {:optional true} ::sm/uuid]])
 
 (defn- build-teams-list-query
-  [{:keys [since since-id search limit]
+  "List teams newest-first with keyset pagination.
+
+  Lookup is by exact `id` only: substring search has no usable
+  index at PRO scale. The `:deleted` flag selects all (absent),
+  only deleted (true) or only live (false) rows."
+  [{:keys [since since-id id deleted limit]
     :or {limit teams-default-limit}}]
-  (let [search-id (when (and (string? search) (not (str/blank? search)))
-                    (uuid/parse* search))
-        clauses    (keep identity
-                         [(when (and (string? search) (not (str/blank? search)))
-                            (if search-id
-                              {:where "(t.name ILIKE ? OR t.id = ?)"
-                               :params [(str "%" search "%") search-id]}
-                              {:where "t.name ILIKE ?"
-                               :params [(str "%" search "%")]}))
+  (let [clauses    (keep identity
+                         [(when (uuid? id)
+                            {:where "t.id = ?"
+                             :params [id]})
+                          (when (some? deleted)
+                            (if deleted
+                              {:where "t.deleted_at IS NOT NULL"
+                               :params []}
+                              {:where "t.deleted_at IS NULL"
+                               :params []}))
                           (when since
                             {:where "(t.created_at, t.id) < (?::timestamptz, ?::uuid)"
                              :params [since (or since-id uuid/zero)]})])

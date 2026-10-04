@@ -43,8 +43,9 @@
    [:since-id {:optional true} ::sm/uuid]
    [:limit {:optional true}
     [:and ::sm/int [:fn #(<= 1 % projects-max-limit)]]]
-   [:search {:optional true} ::sm/text]
-   [:team-id {:optional true} ::sm/uuid]])
+   [:id {:optional true} ::sm/uuid]
+   [:team-id {:optional true} ::sm/uuid]
+   [:deleted {:optional true} ::sm/boolean]])
 
 (def schema:get-projects-result
   [:map
@@ -53,22 +54,29 @@
    [:next-id {:optional true} ::sm/uuid]])
 
 (defn- build-projects-list-query
-  [{:keys [since since-id search team-id limit]
+  "List projects newest-first with keyset pagination.
+
+  Lookup is by exact `id` only: substring search has no usable
+  index at PRO scale. The `:deleted` flag selects all (absent),
+  only deleted (true) or only live (false) rows; the parent-team
+  guard stays regardless."
+  [{:keys [since since-id id team-id deleted limit]
     :or {limit projects-default-limit}}]
-  (let [search-id (when (and (string? search) (not (str/blank? search)))
-                    (uuid/parse* search))
-        clauses   (keep identity
-                        [(when (and (string? search) (not (str/blank? search)))
-                           (if search-id
-                             {:where "(p.name ILIKE ? OR p.id = ?)"
-                              :params [(str "%" search "%") search-id]}
-                             {:where "p.name ILIKE ?"
-                              :params [(str "%" search "%")]}))
+  (let [clauses   (keep identity
+                        [(when (uuid? id)
+                           {:where "p.id = ?"
+                            :params [id]})
                          (when (uuid? team-id)
                            {:where "p.team_id = ?"
                             :params [team-id]})
+                         (when (some? deleted)
+                           (if deleted
+                             {:where "p.deleted_at IS NOT NULL"
+                              :params []}
+                             {:where "p.deleted_at IS NULL"
+                              :params []}))
                          (when since
-                           {:where "(p.modified_at, p.id) < (?::timestamptz, ?::uuid)"
+                           {:where "(p.created_at, p.id) < (?::timestamptz, ?::uuid)"
                             :params [since (or since-id uuid/zero)]})])
         sql-parts  (map :where clauses)
         sql-params (mapcat :params clauses)
@@ -84,7 +92,7 @@
                         "WHERE t.deleted_at IS NULL "
                         (when (seq sql-parts)
                           (str "AND " (str/join " AND " sql-parts) " "))
-                        "ORDER BY p.modified_at DESC, p.id DESC "
+                        "ORDER BY p.created_at DESC, p.id DESC "
                         "LIMIT ?")]
     (into [sql] (concat sql-params [limit]))))
 
@@ -105,7 +113,7 @@
             last-item (peek items)
             has-more? (> (count rows) limit)]
         {:items      items
-         :next-since (when has-more? (:modified-at last-item))
+         :next-since (when has-more? (:created-at last-item))
          :next-id    (when has-more? (:id last-item))})
       {:items []})))
 

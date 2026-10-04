@@ -139,33 +139,35 @@
       (t/is (not (contains? item :props)))
       (t/is (not (contains? item :deleted-at))))))
 
-(t/deftest list-searches-by-email-and-fullname
+(t/deftest list-finds-by-id-and-exact-email
   (let [admin (th/create-profile* 1)
-        _     (th/create-profile* 2 {:fullname " searchable person "})
+        alice (th/create-profile* 2 {:fullname "Alice Admin-Seen"})
         run   (as-superuser admin)]
-    (let [out (run "get-profiles" {:search "profile2.test"})]
-      (t/is (= 1 (count (:items out)))))
-    (let [out (run "get-profiles" {:search "SEARCHABLE"})]
-      (t/is (= 1 (count (:items out)))
-            "search is case-insensitive"))
-    (let [out (run "get-profiles" {:search "no-such-user"})]
+    (let [out (run "get-profiles" {:id (:id alice)})]
+      (t/is (= [(:id alice)] (mapv :id (:items out)))))
+    (let [out (run "get-profiles" {:id (uuid/next)})]
+      (t/is (= {:items []} out)))
+    (let [out (run "get-profiles" {:email (:email alice)})]
+      (t/is (= [(:id alice)] (mapv :id (:items out)))
+            "exact email hits the unique index"))
+    (let [out (run "get-profiles" {:email (str/upper-case (:email alice))})]
+      (t/is (= [(:id alice)] (mapv :id (:items out)))
+            "email lookup is case-insensitive"))
+    (let [out (run "get-profiles" {:email "no-such-user@nodomain.com"})]
       (t/is (= {:items []} out)))))
 
-(t/deftest list-filters-by-flags
-  (let [admin   (th/create-profile* 1)
-        blocked (th/create-profile* 2)
-        active  (th/create-profile* 3 {:is-active true})
-        demo    (th/create-profile* 4 {:is-demo true})
-        _       (set-flags! (:id blocked) {:is-blocked true})
-        run     (as-superuser admin)]
-    (let [out (run "get-profiles" {:is-blocked true})]
-      (t/is (= [(:id blocked)] (mapv :id (:items out)))))
-    (let [out (run "get-profiles" {:is-blocked false})]
-      (t/is (= 3 (count (:items out)))))
-    (let [out (run "get-profiles" {:is-active true})]
-      (t/is (= [(:id active)] (mapv :id (:items out)))))
-    (let [out (run "get-profiles" {:is-demo true})]
-      (t/is (= [(:id demo)] (mapv :id (:items out)))))))
+(t/deftest list-filters-by-deleted
+  (let [admin (th/create-profile* 1)
+        gone  (th/create-profile* 2)
+        _     (set-flags! (:id gone) {:deleted-at (ct/now)})
+        run   (as-superuser admin)]
+    (let [out (run "get-profiles" {:deleted true})]
+      (t/is (= [(:id gone)] (mapv :id (:items out)))))
+    (let [out (run "get-profiles" {:deleted false})]
+      (t/is (= [(:id admin)] (mapv :id (:items out)))))
+    (let [out (run "get-profiles" {})]
+      (t/is (= 2 (count (:items out)))
+            "without the flag, deleted rows still list"))))
 
 (t/deftest list-paginates
   (let [admin (th/create-profile* 1)
@@ -409,9 +411,9 @@
     (t/is (zero? (session-count (:id user2))))
     (t/is (= 2 (count @jobs)))
     (t/is (every? #(= :delete-object (:task %)) @jobs))
-    (let [out (run "get-profiles" {:search "profile2.test"})]
+    (let [out (run "get-profiles" {:email (:email user2)})]
       (t/is (= 1 (count (:items out)))
-            "a marked profile still lists under its own search")
+            "a marked profile still lists under its own email")
       (t/is (some? (:deleted-at (first (:items out))))))))
 
 (t/deftest delete-skips-self

@@ -1,5 +1,5 @@
 // File detail: metadata plus validate, repair, and export.
-// The file is located through the exact-id search, so no extra
+// The file loads through an exact-id lookup, so no extra
 // detail command is needed. Validating paints the error table;
 // repairing asks to type the error count first (like the bulk
 // user delete) and snapshots by default; exporting is a plain
@@ -42,7 +42,7 @@ export function fileDetailPage(root, { id, onNavigate }) {
   async function load() {
     let found;
     try {
-      found = await rpc("get-files", { search: id });
+      found = await rpc("get-files", { id });
     } catch {
       body.replaceChildren();
       body.textContent = "Could not load the file.";
@@ -77,7 +77,7 @@ export function fileDetailPage(root, { id, onNavigate }) {
         onRestored: async () => {
           let parentGone = false;
           try {
-            const found = await rpc("get-projects", { search: file.projectId });
+            const found = await rpc("get-projects", { id: file.projectId });
             const project = (found.items ?? []).find((item) => item.id === file.projectId) ?? null;
             parentGone = project !== null && !!project.deletedAt;
           } catch {

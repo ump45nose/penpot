@@ -217,7 +217,7 @@
 (t/deftest list-returns-files-with-project-and-team
   (let [{:keys [profile file]} (create-file! 1)
         run   (as-superuser profile)
-        out   (run "get-files" {:search (:name file)})
+        out   (run "get-files" {:id (:id file)})
         item  (first (:items out))]
     (t/is (= 1 (count (:items out))))
     (t/is (= (:id file) (:id item)))
@@ -226,20 +226,34 @@
     (t/is (string? (:project-name item)))
     (t/is (uuid? (:team-id item)))
     (t/is (string? (:team-name item)))
+    (t/is (some? (:created-at item)))
     (t/is (some? (:modified-at item)))))
 
 (t/deftest list-finds-by-exact-id
   (let [{:keys [profile file]} (create-file! 1)
         _     (create-file! 2)
         run   (as-superuser profile)
-        out   (run "get-files" {:search (str (:id file))})]
+        out   (run "get-files" {:id (:id file)})]
     (t/is (= [(:id file)] (mapv :id (:items out))))))
+
+(t/deftest list-filters-by-deleted
+  (let [{:keys [profile file]} (create-file! 1)
+        _     (th/mark-file-deleted* {:id (:id file)})
+        run   (as-superuser profile)]
+    (let [out (run "get-files" {:deleted true})]
+      (t/is (= [(:id file)] (mapv :id (:items out)))))
+    (let [out (run "get-files" {:deleted false})]
+      (t/is (not (contains? (set (map :id (:items out))) (:id file)))
+            "the deleted file is excluded"))
+    (let [out (run "get-files" {})]
+      (t/is (= 1 (count (:items out)))
+            "without the flag, deleted rows still list"))))
 
 (t/deftest list-filters-by-team
   (let [{:keys [profile file]} (create-file! 1)
         other (create-file! 2)
         run   (as-superuser profile)
-        team-id (:team-id (first (:items (run "get-files" {:search (:name file)}))))
+        team-id (:team-id (first (:items (run "get-files" {:id (:id file)}))))
         out   (run "get-files" {:team-id team-id})
         ids   (set (map :id (:items out)))]
     (t/is (contains? ids (:id file)))
@@ -249,7 +263,7 @@
   (let [{:keys [profile file]} (create-file! 1)
         other (create-file! 2)
         run   (as-superuser profile)
-        project-id (:project-id (first (:items (run "get-files" {:search (:name file)}))))
+        project-id (:project-id (first (:items (run "get-files" {:id (:id file)}))))
         out   (run "get-files" {:project-id project-id})
         ids   (set (map :id (:items out)))]
     (t/is (contains? ids (:id file)))
@@ -259,21 +273,21 @@
   (let [{:keys [profile file]} (create-file! 1)
         _     (th/mark-file-deleted* {:id (:id file)})
         run   (as-superuser profile)
-        out   (run "get-files" {:search (:name file)})
+        out   (run "get-files" {:id (:id file)})
         item  (first (:items out))]
     (t/is (= 1 (count (:items out))))
     (t/is (= (:id file) (:id item)))
     (t/is (some? (:deleted-at item)))))
 
-(t/deftest list-search-and-pagination
+(t/deftest list-paginates
   (let [{:keys [profile file]} (create-file! 1)
         _     (create-file! 2)
         run   (as-superuser profile)
-        page1 (run "get-files" {:search "file" :limit 1})]
+        page1 (run "get-files" {:limit 1})]
     (t/is (= 1 (count (:items page1))))
     (t/is (some? (:next-since page1)))
     (t/is (some? (:next-id page1)))
-    (let [page2 (run "get-files" {:search "file" :limit 1
+    (let [page2 (run "get-files" {:limit 1
                                   :since (:next-since page1)
                                   :since-id (:next-id page1)})]
       (t/is (= 1 (count (:items page2))))

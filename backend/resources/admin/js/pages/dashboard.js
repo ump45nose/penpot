@@ -8,7 +8,7 @@ const SECTIONS = [
   {
     query: "?screen=error-reports",
     title: "Error reports",
-    text: "Browse server error reports: filter by source, search hints, read traces.",
+    text: "Browse server error reports: filter by source, read traces.",
   },
   {
     query: "?screen=users",

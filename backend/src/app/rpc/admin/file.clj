@@ -145,6 +145,7 @@
    [:project-name ::sm/text]
    [:team-id ::sm/uuid]
    [:team-name ::sm/text]
+   [:created-at ct/schema:inst]
    [:modified-at ct/schema:inst]
    [:deleted-at {:optional true} ct/schema:inst]])
 
@@ -154,9 +155,10 @@
    [:since-id {:optional true} ::sm/uuid]
    [:limit {:optional true}
     [:and ::sm/int [:fn #(<= 1 % files-max-limit)]]]
-   [:search {:optional true} ::sm/text]
+   [:id {:optional true} ::sm/uuid]
    [:team-id {:optional true} ::sm/uuid]
-   [:project-id {:optional true} ::sm/uuid]])
+   [:project-id {:optional true} ::sm/uuid]
+   [:deleted {:optional true} ::sm/boolean]])
 
 (def schema:get-files-result
   [:map
@@ -165,25 +167,32 @@
    [:next-id {:optional true} ::sm/uuid]])
 
 (defn- build-files-list-query
-  [{:keys [since since-id search team-id project-id limit]
+  "List files newest-first with keyset pagination.
+
+  Lookup is by exact `id` only: substring search has no usable
+  index at PRO scale. The `:deleted` flag selects all (absent),
+  only deleted (true) or only live (false) rows; the
+  parent-project/team guards stay regardless."
+  [{:keys [since since-id id team-id project-id deleted limit]
     :or {limit files-default-limit}}]
-  (let [search-id (when (and (string? search) (not (str/blank? search)))
-                    (uuid/parse* search))
-        clauses   (keep identity
-                        [(when (and (string? search) (not (str/blank? search)))
-                           (if search-id
-                             {:where "(f.name ILIKE ? OR f.id = ?)"
-                              :params [(str "%" search "%") search-id]}
-                             {:where "f.name ILIKE ?"
-                              :params [(str "%" search "%")]}))
+  (let [clauses   (keep identity
+                        [(when (uuid? id)
+                           {:where "f.id = ?"
+                            :params [id]})
                          (when (uuid? team-id)
                            {:where "p.team_id = ?"
                             :params [team-id]})
                          (when (uuid? project-id)
                            {:where "f.project_id = ?"
                             :params [project-id]})
+                         (when (some? deleted)
+                           (if deleted
+                             {:where "f.deleted_at IS NOT NULL"
+                              :params []}
+                             {:where "f.deleted_at IS NULL"
+                              :params []}))
                          (when since
-                           {:where "(f.modified_at, f.id) < (?::timestamptz, ?::uuid)"
+                           {:where "(f.created_at, f.id) < (?::timestamptz, ?::uuid)"
                             :params [since (or since-id uuid/zero)]})])
         sql-parts  (map :where clauses)
         sql-params (mapcat :params clauses)
@@ -191,7 +200,7 @@
                         "p.name AS project_name, "
                         "p.team_id AS team_id, "
                         "t.name AS team_name, "
-                        "f.modified_at, f.deleted_at "
+                        "f.created_at, f.modified_at, f.deleted_at "
                         "FROM file AS f "
                         "JOIN project AS p ON (p.id = f.project_id) "
                         "JOIN team AS t ON (t.id = p.team_id) "
@@ -199,7 +208,7 @@
                         "AND t.deleted_at IS NULL "
                         (when (seq sql-parts)
                           (str "AND " (str/join " AND " sql-parts) " "))
-                        "ORDER BY f.modified_at DESC, f.id DESC "
+                        "ORDER BY f.created_at DESC, f.id DESC "
                         "LIMIT ?")]
     (into [sql] (concat sql-params [limit]))))
 
@@ -220,7 +229,7 @@
             last-item (peek items)
             has-more? (> (count rows) limit)]
         {:items      items
-         :next-since (when has-more? (:modified-at last-item))
+         :next-since (when has-more? (:created-at last-item))
          :next-id    (when has-more? (:id last-item))})
       {:items []})))
 

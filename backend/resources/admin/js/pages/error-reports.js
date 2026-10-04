@@ -1,4 +1,4 @@
-// Error reports list: filterable table with pagination. Every value
+// Error reports list: source filter with pagination. Every value
 // is painted as text; source badges use a fixed class map, never the
 // raw value. JSON responses use camelCase (`nextSince`, …).
 
@@ -39,10 +39,9 @@ function sourceCell(source) {
 }
 
 export function errorReportsPage(root, { onNavigate }) {
-  const fromUrl = readQuery(["source", "hint"]);
+  const fromUrl = readQuery(["source"]);
   const state = {
     source: SOURCES.includes(fromUrl.source) ? fromUrl.source : "",
-    hint: fromUrl.hint ?? "",
     items: [],
     nextSince: null,
     nextId: null,
@@ -71,25 +70,11 @@ export function errorReportsPage(root, { onNavigate }) {
   sourceSelect.value = state.source;
   controls.appendChild(sourceSelect);
 
-  const hintInput = document.createElement("input");
-  hintInput.className = "admin-input";
-  hintInput.type = "search";
-  hintInput.placeholder = "Search hint…";
-  hintInput.setAttribute("aria-label", "Search by hint");
-  hintInput.value = state.hint;
-  hintInput.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") {
-      searchButton.click();
-    }
-  });
-  controls.appendChild(hintInput);
-
   const searchButton = document.createElement("button");
   searchButton.className = "admin-button";
   searchButton.textContent = "Search";
   searchButton.addEventListener("click", () => {
     state.source = sourceSelect.value;
-    state.hint = hintInput.value.trim();
     state.nextSince = null;
     state.nextId = null;
     load();
@@ -101,9 +86,7 @@ export function errorReportsPage(root, { onNavigate }) {
   clearButton.textContent = "Clear";
   clearButton.addEventListener("click", () => {
     sourceSelect.value = "";
-    hintInput.value = "";
     state.source = "";
-    state.hint = "";
     state.nextSince = null;
     state.nextId = null;
     load();
@@ -163,13 +146,10 @@ export function errorReportsPage(root, { onNavigate }) {
   async function load({ append = false } = {}) {
     state.loading = true;
     paint();
-    writeQuery({ source: state.source, hint: state.hint });
+    writeQuery({ source: state.source });
     const params = { limit: PAGE_SIZE };
     if (state.source) {
       params.source = state.source;
-    }
-    if (state.hint) {
-      params.hint = state.hint;
     }
     if (append && state.nextSince) {
       params.since = state.nextSince;

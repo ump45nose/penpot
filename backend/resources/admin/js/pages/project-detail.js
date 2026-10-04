@@ -1,5 +1,5 @@
 // Project detail: metadata plus a jump to its files.
-// The project is located through the exact-id search, so no extra
+// The project loads through an exact-id lookup, so no extra
 // detail command is needed. The "View files" button opens the
 // files list filtered by this project; the team name links back to
 // the team page. Every value is painted as text. An unknown id
@@ -46,7 +46,7 @@ export function projectDetailPage(root, { id, onNavigate }) {
   async function load() {
     let found;
     try {
-      found = await rpc("get-projects", { search: id });
+      found = await rpc("get-projects", { id });
     } catch {
       body.replaceChildren();
       body.textContent = "Could not load the project.";
@@ -77,7 +77,7 @@ export function projectDetailPage(root, { id, onNavigate }) {
         onRestored: async () => {
           let parentGone = false;
           try {
-            const found = await rpc("get-teams", { search: project.teamId });
+            const found = await rpc("get-teams", { id: project.teamId });
             const team = (found.items ?? []).find((item) => item.id === project.teamId) ?? null;
             parentGone = team !== null && !!team.deletedAt;
           } catch {
