@@ -34,6 +34,7 @@
    [:id ::sm/uuid]
    [:name ::sm/text]
    [:created-at ct/schema:inst]
+   [:modified-at ct/schema:inst]
    [:is-default ::sm/boolean]
    [:total-members ::sm/int]
    [:deleted-at {:optional true} ct/schema:inst]
@@ -69,7 +70,7 @@
                           (adml/since-clause "t.created_at" "t.id" since since-id)])
         sql-parts  (map :where clauses)
         sql-params (mapcat :params clauses)
-        sql        (str "SELECT t.id, t.name, t.created_at, t.is_default, t.deleted_at, "
+        sql        (str "SELECT t.id, t.name, t.created_at, t.modified_at, t.is_default, t.deleted_at, "
                         ;; Two correlated subqueries per row (member count
                         ;; plus owner email). Fine at admin page sizes; if
                         ;; this list ever gets slow at PRO scale, measure
@@ -142,6 +143,7 @@
      {:id                 (:id team)
       :name               (:name team)
       :created-at         (:created-at team)
+      :modified-at        (:modified-at team)
       :is-default         (boolean (:is-default team))
       :total-members      members
       :total-projects     projects

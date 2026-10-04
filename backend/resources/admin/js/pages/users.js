@@ -13,6 +13,7 @@ const COLUMNS = [
   { key: "fullname", label: "Name", class: "admin-cell-name" },
   { key: "email", label: "Email", class: "admin-cell-email" },
   { key: "createdAt", label: "Created", class: "admin-cell-date" },
+  { key: "modifiedAt", label: "Modified", class: "admin-cell-date" },
   { key: "deletedAt", label: "Deleted", class: "admin-cell-date" },
   { key: "status", label: "Status", class: "admin-cell-status" },
 ];
@@ -43,6 +44,7 @@ export function usersPage(root, { onNavigate }) {
     decorateRow: (item) => ({
       ...item,
       createdAt: formatDate(item.createdAt),
+      modifiedAt: formatDate(item.modifiedAt),
       deletedAt: item.deletedAt ? formatDate(item.deletedAt) : "—",
       status: statusOf(item),
     }),

@@ -4,13 +4,9 @@
 // refuses changes). Every value is painted as text.
 
 import { rpc } from "../api.js";
+import { formatDate } from "../components/date.js";
 import { renderHeader } from "../components/header.js";
 import { showToast } from "../components/toast.js";
-
-function formatDate(iso) {
-  const date = new Date(iso);
-  return Number.isNaN(date.getTime()) ? String(iso ?? "") : date.toLocaleString();
-}
 
 function formatOffset(millis) {
   if (millis === null || millis === undefined) {

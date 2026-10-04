@@ -11,9 +11,10 @@ const COLUMNS = [
   { key: "name", label: "Name", class: "admin-cell-name" },
   { key: "owner", label: "Owner", class: "admin-cell-email admin-cell-left" },
   { key: "totalMembers", label: "Members", class: "admin-cell-count" },
-  { key: "createdAt", label: "Created", class: "admin-cell-date admin-cell-right" },
-  { key: "isDefault", label: "Default", class: "admin-cell-status admin-cell-center" },
+  { key: "createdAt", label: "Created", class: "admin-cell-date" },
+  { key: "modifiedAt", label: "Modified", class: "admin-cell-date" },
   { key: "deletedAt", label: "Deleted", class: "admin-cell-date" },
+  { key: "isDefault", label: "Default", class: "admin-cell-status admin-cell-center" },
   { key: "status", label: "Status", class: "admin-cell-status" },
 ];
 
@@ -34,6 +35,7 @@ export function teamsPage(root, { onNavigate }) {
       ...item,
       owner: item.owner ?? "—",
       createdAt: formatDate(item.createdAt),
+      modifiedAt: formatDate(item.modifiedAt),
       isDefault: item.isDefault ? "yes" : "no",
       deletedAt: item.deletedAt ? formatDate(item.deletedAt) : "—",
       status: item.deletedAt ? "deleted" : "active",

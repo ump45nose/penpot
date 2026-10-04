@@ -144,7 +144,8 @@
         alice (th/create-profile* 2 {:fullname "Alice Admin-Seen"})
         run   (as-superuser admin)]
     (let [out (run "get-profiles" {:id (:id alice)})]
-      (t/is (= [(:id alice)] (mapv :id (:items out)))))
+      (t/is (= [(:id alice)] (mapv :id (:items out))))
+      (t/is (some? (:modified-at (first (:items out))))))
     (let [out (run "get-profiles" {:id (uuid/next)})]
       (t/is (= {:items []} out)))
     (let [out (run "get-profiles" {:email (:email alice)})]

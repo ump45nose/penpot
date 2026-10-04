@@ -6,6 +6,7 @@
 // shows everything.
 
 import { rpc } from "../api.js";
+import { formatDate } from "../components/date.js";
 import { renderHeader } from "../components/header.js";
 import { renderTable } from "../components/table.js";
 import { showToast } from "../components/toast.js";
@@ -28,11 +29,6 @@ const COLUMNS = [
   { key: "kind", label: "Kind", class: "admin-cell-kind" },
   { key: "hint", label: "Hint", class: "admin-cell-hint" },
 ];
-
-function formatDate(iso) {
-  const date = new Date(iso);
-  return Number.isNaN(date.getTime()) ? String(iso ?? "") : date.toLocaleString();
-}
 
 function sourceCell(source) {
   const badge = document.createElement("span");

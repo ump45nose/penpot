@@ -4,6 +4,7 @@
 // An unknown id shows "not found" instead of failing.
 
 import { rpc } from "../api.js";
+import { formatDate } from "../components/date.js";
 import { renderHeader, paintDetailTitle } from "../components/header.js";
 import { deletedNotice, restoreBlock } from "../components/restore.js";
 import { showToast } from "../components/toast.js";
@@ -35,11 +36,6 @@ const ROWS = [
   ["totalMembers", "Members"],
   ["totalProjects", "Projects"],
 ];
-
-function formatDate(iso) {
-  const date = new Date(iso);
-  return Number.isNaN(date.getTime()) ? String(iso ?? "") : date.toLocaleString();
-}
 
 function roleOf(membership) {
   if (membership.isOwner) {

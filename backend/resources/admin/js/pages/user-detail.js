@@ -8,6 +8,7 @@ import { renderHeader, paintDetailTitle } from "../components/header.js";
 import { deletedNotice, restoreBlock } from "../components/restore.js";
 import { showToast } from "../components/toast.js";
 import { statusCell, statusOf } from "../components/badges.js";
+import { formatDate } from "../components/date.js";
 import { backUrl } from "../url.js";
 
 const ROWS = [
@@ -17,11 +18,6 @@ const ROWS = [
   ["deletedAt", "Deleted"],
   ["authBackend", "Auth backend"],
 ];
-
-function formatDate(iso) {
-  const date = new Date(iso);
-  return Number.isNaN(date.getTime()) ? String(iso ?? "") : date.toLocaleString();
-}
 
 function roleOf(membership) {
   if (membership.isOwner) {

@@ -37,6 +37,7 @@
    [:email ::sm/text]
    [:fullname ::sm/text]
    [:created-at ct/schema:inst]
+   [:modified-at ct/schema:inst]
    [:is-active ::sm/boolean]
    [:is-blocked ::sm/boolean]
    [:is-demo ::sm/boolean]
@@ -77,7 +78,7 @@
                           (adml/since-clause "created_at" "id" since since-id)])
         sql-parts  (map :where clauses)
         sql-params (mapcat :params clauses)
-        sql        (str "SELECT id, email, fullname, created_at, "
+        sql        (str "SELECT id, email, fullname, created_at, modified_at, "
                         "is_active, COALESCE(is_blocked, false) AS is_blocked, "
                         "is_demo, auth_backend, deleted_at "
                         "FROM profile "
@@ -153,6 +154,7 @@
       :email        (:email row)
       :fullname     (:fullname row)
       :created-at   (:created-at row)
+      :modified-at  (:modified-at row)
       :is-active    (boolean (:is-active row))
       :is-blocked   (boolean (:is-blocked row))
       :is-demo      (boolean (:is-demo row))
