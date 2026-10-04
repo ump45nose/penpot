@@ -1,6 +1,9 @@
 // Error reports list: source filter with pagination. Every value
 // is painted as text; source badges use a fixed class map, never the
 // raw value. JSON responses use camelCase (`nextSince`, …).
+// The `hint` search is gone from the panel on purpose (no index
+// serves it at PRO scale); a bookmarked `?hint=` is ignored and
+// shows everything.
 
 import { rpc } from "../api.js";
 import { renderHeader } from "../components/header.js";

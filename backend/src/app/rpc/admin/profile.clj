@@ -14,13 +14,13 @@
    [app.common.exceptions :as ex]
    [app.common.schema :as-alias sm]
    [app.common.time :as ct]
-   [app.common.uuid :as uuid]
    [app.config :as cf]
    [app.db :as db]
    [app.features.object-cascade :as cascade]
    [app.http.session :as session]
    [app.loggers.audit :as audit]
    [app.rpc :as-alias rpc]
+   [app.rpc.admin.list :as adml]
    [app.rpc.commands.auth :as cmd.auth]
    [app.rpc.commands.profile :as cmd.profile]
    [app.rpc.doc :as doc]
@@ -62,28 +62,19 @@
 (defn- build-profiles-list-query
   "List profiles newest-first with keyset pagination.
 
-  Lookup is by exact indexed fields only (`id`, exact `email`):
-  substring search has no usable index at PRO scale. The `:deleted`
-  flag selects all (absent), only deleted (true) or only live
-  (false) rows."
+  Lookup is by exact indexed fields only (`id`, exact `email`); see
+  `app.rpc.admin.list` for the shared list contract."
   [{:keys [since since-id id email deleted limit]
     :or {limit profiles-default-limit}}]
   (let [clauses    (keep identity
-                         [(when (uuid? id)
+                         [(when id
                             {:where "id = ?"
                              :params [id]})
                           (when (and (string? email) (not (str/blank? email)))
                             {:where "email = ?"
                              :params [(str/lower (str/trim email))]})
-                          (when (some? deleted)
-                            (if deleted
-                              {:where "deleted_at IS NOT NULL"
-                               :params []}
-                              {:where "deleted_at IS NULL"
-                               :params []}))
-                          (when since
-                            {:where "(created_at, id) < (?::timestamptz, ?::uuid)"
-                             :params [since (or since-id uuid/zero)]})])
+                          (adml/deleted-clause "deleted_at" deleted)
+                          (adml/since-clause "created_at" "id" since since-id)])
         sql-parts  (map :where clauses)
         sql-params (mapcat :params clauses)
         sql        (str "SELECT id, email, fullname, created_at, "
@@ -102,20 +93,10 @@
    ::sm/params schema:get-profiles-params
    ::sm/result schema:get-profiles-result}
   [cfg params]
-  (let [limit            (min (or (:limit params) profiles-default-limit)
-                              profiles-max-limit)
-        params           (assoc params :limit (inc limit))
+  (let [[limit params]   (adml/with-fetch-limit params profiles-default-limit profiles-max-limit)
         [sql & sql-args] (build-profiles-list-query params)
         rows             (db/exec! cfg (into [sql] sql-args))]
-    (if (seq rows)
-      (let [items      (->> (take limit rows)
-                            (mapv d/without-nils))
-            last-item  (peek items)
-            has-more?  (> (count rows) limit)]
-        {:items      items
-         :next-since (when has-more? (:created-at last-item))
-         :next-id    (when has-more? (:id last-item))})
-      {:items []})))
+    (adml/paginate rows limit)))
 
 (def schema:owned-team
   [:map

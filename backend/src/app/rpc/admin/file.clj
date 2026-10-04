@@ -18,10 +18,10 @@
    [app.common.files.validate :as cfv]
    [app.common.schema :as-alias sm]
    [app.common.time :as ct]
-   [app.common.uuid :as uuid]
    [app.db :as db]
    [app.features.object-cascade :as cascade]
    [app.rpc :as-alias rpc]
+   [app.rpc.admin.list :as adml]
    [app.rpc.doc :as doc]
    [app.srepl.helpers :as h]
    [app.util.services :as sv]
@@ -169,31 +169,23 @@
 (defn- build-files-list-query
   "List files newest-first with keyset pagination.
 
-  Lookup is by exact `id` only: substring search has no usable
-  index at PRO scale. The `:deleted` flag selects all (absent),
-  only deleted (true) or only live (false) rows; the
-  parent-project/team guards stay regardless."
+  Lookup is by exact `id` only; see `app.rpc.admin.list` for the
+  shared list contract. The parent-project/team guards stay
+  regardless."
   [{:keys [since since-id id team-id project-id deleted limit]
     :or {limit files-default-limit}}]
   (let [clauses   (keep identity
-                        [(when (uuid? id)
+                        [(when id
                            {:where "f.id = ?"
                             :params [id]})
-                         (when (uuid? team-id)
+                         (when team-id
                            {:where "p.team_id = ?"
                             :params [team-id]})
-                         (when (uuid? project-id)
+                         (when project-id
                            {:where "f.project_id = ?"
                             :params [project-id]})
-                         (when (some? deleted)
-                           (if deleted
-                             {:where "f.deleted_at IS NOT NULL"
-                              :params []}
-                             {:where "f.deleted_at IS NULL"
-                              :params []}))
-                         (when since
-                           {:where "(f.created_at, f.id) < (?::timestamptz, ?::uuid)"
-                            :params [since (or since-id uuid/zero)]})])
+                         (adml/deleted-clause "f.deleted_at" deleted)
+                         (adml/since-clause "f.created_at" "f.id" since since-id)])
         sql-parts  (map :where clauses)
         sql-params (mapcat :params clauses)
         sql        (str "SELECT f.id, f.name, f.project_id, "
@@ -218,20 +210,37 @@
    ::sm/params schema:get-files-params
    ::sm/result schema:get-files-result}
   [cfg params]
-  (let [limit            (min (or (:limit params) files-default-limit)
-                              files-max-limit)
-        params           (assoc params :limit (inc limit))
+  (let [[limit params]   (adml/with-fetch-limit params files-default-limit files-max-limit)
         [sql & sql-args] (build-files-list-query params)
         rows             (db/exec! cfg (into [sql] sql-args))]
-    (if (seq rows)
-      (let [items     (->> (take limit rows)
-                           (mapv d/without-nils))
-            last-item (peek items)
-            has-more? (> (count rows) limit)]
-        {:items      items
-         :next-since (when has-more? (:created-at last-item))
-         :next-id    (when has-more? (:id last-item))})
-      {:items []})))
+    (adml/paginate rows limit)))
+
+(def schema:get-file-params
+  [:map
+   [:id ::sm/uuid]])
+
+(def ^:private sql:file
+  (str "SELECT f.id, f.name, f.project_id, "
+       "p.name AS project_name, "
+       "p.team_id AS team_id, "
+       "t.name AS team_name, "
+       "f.created_at, f.modified_at, f.deleted_at "
+       "FROM file AS f "
+       "JOIN project AS p ON (p.id = f.project_id) "
+       "JOIN team AS t ON (t.id = p.team_id) "
+       "WHERE f.id = ?"))
+
+(sv/defmethod ::get-file
+  {::doc/added "2.20"
+   ::rpc/perms #{"superuser"}
+   ::sm/params schema:get-file-params
+   ::sm/result schema:file-summary}
+  [cfg {:keys [id]}]
+  (or (some-> (db/exec-one! cfg [sql:file id])
+              (d/without-nils))
+      (ex/raise :type :not-found
+                :code :file-not-found
+                :hint (str "file " id " not found"))))
 
 (def schema:restore-file-params
   [:map {:title "restore-file"}

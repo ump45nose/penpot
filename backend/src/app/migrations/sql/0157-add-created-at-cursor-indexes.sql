@@ -15,6 +15,10 @@
 -- (WHERE deleted_at IS NOT NULL) keep serving the "only deleted"
 -- filter; these full indexes serve all three deleted-filter modes
 -- with the deleted check applied per row during the scan.
+--
+-- Deploy note: a plain CREATE INDEX takes a write-blocking lock on
+-- each table while its index builds. On PRO-sized tables, deploy
+-- this in a low-traffic window.
 
 CREATE INDEX profile__admin_list__idx
     ON profile (created_at DESC, id DESC);

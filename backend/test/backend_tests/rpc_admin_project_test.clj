@@ -143,6 +143,26 @@
         out   (run "get-projects" {:id (:id project)})]
     (t/is (= [(:id project)] (mapv :id (:items out))))))
 
+(t/deftest list-finds-by-string-id
+  (let [{:keys [profile project]} (create-project! 1)
+        run   (as-superuser profile)
+        out   (run "get-projects" {:id (str (:id project))})]
+    (t/is (= [(:id project)] (mapv :id (:items out)))
+          "the browser sends ids as strings")))
+
+(t/deftest list-returns-newest-first-without-gaps
+  (let [{:keys [profile]} (create-project! 1)
+        _     (create-project! 2)
+        _     (create-project! 3)
+        run   (as-superuser profile)
+        out   (run "get-projects" {:limit 50})
+        items (:items out)
+        keys  (mapv (juxt :created-at :id) items)]
+    (t/is (= keys (sort #(compare %2 %1) keys))
+          "pages follow created_at DESC, id DESC")
+    (t/is (= (count keys) (count (distinct (map :id items))))
+          "no duplicates across the order")))
+
 (t/deftest list-filters-by-deleted
   (let [{:keys [profile project]} (create-project! 1)
         _     (mark-deleted! :project (:id project))
@@ -211,3 +231,35 @@
       (t/is (= 1 (count (:items page2))))
       (t/is (not= (-> page1 :items first :id)
                   (-> page2 :items first :id))))))
+
+;; ----------------------------------------------------------------
+;; Detail
+;; ----------------------------------------------------------------
+
+(t/deftest detail-unlisted-session-rejected
+  (let [{:keys [profile project]} (create-project! 1)
+        run   (as-session #{} profile)]
+    (t/is (= :superuser-required
+             (caught-code #(run "get-project" {:id (:id project)}))))))
+
+(t/deftest detail-resolves-regardless-of-deleted-state
+  (let [{:keys [profile team project]} (create-project! 1)
+        run   (as-superuser profile)]
+    (let [out (run "get-project" {:id (:id project)})]
+      (t/is (= (:id project) (:id out)))
+      (t/is (= (:name project) (:name out)))
+      (t/is (= (:id team) (:team-id out))))
+    ;; A stray live project under a deleted team still resolves:
+    ;; the admin must reach objects the list hides.
+    (mark-deleted! :team (:id team))
+    (let [out (run "get-project" {:id (:id project)})]
+      (t/is (= (:id project) (:id out))))
+    (mark-deleted! :project (:id project))
+    (let [out (run "get-project" {:id (:id project)})]
+      (t/is (some? (:deleted-at out))))))
+
+(t/deftest detail-unknown-id-gives-not-found
+  (let [{:keys [profile]} (create-project! 1)
+        run   (as-superuser profile)]
+    (t/is (= :project-not-found
+             (caught-code #(run "get-project" {:id (uuid/next)}))))))

@@ -1,6 +1,8 @@
 // Generic table: `columns` is [{key, label}], `rows` is [object].
 // Every cell is painted as text (`textContent`), never as HTML:
-// future data (error hints) is not trustworthy.
+// future data (error hints) is not trustworthy. Each body cell also
+// carries its column key (`data-key`) so callers can find a cell by
+// key instead of by position.
 
 export function renderTable(columns, rows) {
   const table = document.createElement("table");
@@ -24,6 +26,7 @@ export function renderTable(columns, rows) {
     const rowEl = document.createElement("tr");
     for (const column of columns) {
       const cell = document.createElement("td");
+      cell.dataset.key = column.key;
       if (column.class) {
         cell.className = column.class;
       }

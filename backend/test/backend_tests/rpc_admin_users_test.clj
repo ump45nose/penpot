@@ -153,6 +153,9 @@
     (let [out (run "get-profiles" {:email (str/upper-case (:email alice))})]
       (t/is (= [(:id alice)] (mapv :id (:items out)))
             "email lookup is case-insensitive"))
+    (let [out (run "get-profiles" {:email (str "  " (str/upper-case (:email alice)) "  ")})]
+      (t/is (= [(:id alice)] (mapv :id (:items out)))
+            "email lookup trims surrounding spaces"))
     (let [out (run "get-profiles" {:email "no-such-user@nodomain.com"})]
       (t/is (= {:items []} out)))))
 

@@ -1,9 +1,11 @@
 // Project detail: metadata plus a jump to its files.
-// The project loads through an exact-id lookup, so no extra
-// detail command is needed. The "View files" button opens the
-// files list filtered by this project; the team name links back to
-// the team page. Every value is painted as text. An unknown id
-// shows "not found" instead of failing.
+// The project resolves by id through `get-project`, regardless of
+// its own or its team's deleted state: the admin must reach stray
+// objects the lists hide. (Lists keep hiding children of deleted
+// parents.) The "View files" button opens the files list filtered
+// by this project; the team name links back to the team page.
+// Every value is painted as text. An unknown id shows "not found"
+// instead of failing.
 
 import { rpc } from "../api.js";
 import { renderHeader, paintDetailTitle } from "../components/header.js";
@@ -44,19 +46,17 @@ export function projectDetailPage(root, { id, onNavigate }) {
   load();
 
   async function load() {
-    let found;
+    let project;
     try {
-      found = await rpc("get-projects", { id });
-    } catch {
+      project = await rpc("get-project", { id });
+    } catch (err) {
       body.replaceChildren();
-      body.textContent = "Could not load the project.";
-      showToast("Could not load the project.", "error");
-      return;
-    }
-    const project = (found.items ?? []).find((item) => item.id === id) ?? null;
-    if (project === null) {
-      body.replaceChildren();
-      body.textContent = "Project not found.";
+      if (err.status === 404) {
+        body.textContent = "Project not found.";
+      } else {
+        body.textContent = "Could not load the project.";
+        showToast("Could not load the project.", "error");
+      }
       return;
     }
     paintDetailTitle(header, {
@@ -77,11 +77,12 @@ export function projectDetailPage(root, { id, onNavigate }) {
         onRestored: async () => {
           let parentGone = false;
           try {
-            const found = await rpc("get-teams", { id: project.teamId });
-            const team = (found.items ?? []).find((item) => item.id === project.teamId) ?? null;
-            parentGone = team !== null && !!team.deletedAt;
+            const team = await rpc("get-team", { id: project.teamId });
+            parentGone = !!team.deletedAt;
           } catch {
-            parentGone = false;
+            // The team row itself is gone: definitely parent-gone,
+            // so say so instead of reloading into "not found".
+            parentGone = true;
           }
           if (parentGone) {
             body.replaceChildren();

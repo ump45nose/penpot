@@ -183,6 +183,14 @@
         out   (run "get-teams" {:id (:id team)})]
     (t/is (= [(:id team)] (mapv :id (:items out))))))
 
+(t/deftest list-finds-by-string-id
+  (let [admin (th/create-profile* 1)
+        team  (th/create-team* 1 {:profile-id (:id admin)})
+        run   (as-superuser admin)
+        out   (run "get-teams" {:id (str (:id team))})]
+    (t/is (= [(:id team)] (mapv :id (:items out)))
+          "the browser sends ids as strings")))
+
 ;; ----------------------------------------------------------------
 ;; Detail
 ;; ----------------------------------------------------------------

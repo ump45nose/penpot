@@ -236,6 +236,38 @@
         out   (run "get-files" {:id (:id file)})]
     (t/is (= [(:id file)] (mapv :id (:items out))))))
 
+(t/deftest list-finds-by-string-id
+  (let [{:keys [profile file]} (create-file! 1)
+        run   (as-superuser profile)
+        out   (run "get-files" {:id (str (:id file))})]
+    (t/is (= [(:id file)] (mapv :id (:items out)))
+          "the browser sends ids as strings")))
+
+(t/deftest list-combined-id-and-deleted-filters
+  (let [{:keys [profile file]} (create-file! 1)
+        _     (th/mark-file-deleted* {:id (:id file)})
+        run   (as-superuser profile)]
+    (let [out (run "get-files" {:id (:id file) :deleted false})]
+      (t/is (= {:items []} out)
+            "a deleted file never lists as live"))
+    (let [team-id (:team-id (first (:items (run "get-files" {:id (:id file)}))))
+          out     (run "get-files" {:team-id team-id :deleted true})]
+      (t/is (= [(:id file)] (mapv :id (:items out)))
+            "team scope composes with the deleted filter"))))
+
+(t/deftest list-hides-files-under-deleted-projects
+  (let [profile (th/create-profile* 1)
+        team    (th/create-team* 1 {:profile-id (:id profile)})
+        project (th/create-project* 1 {:profile-id (:id profile)
+                                       :team-id (:id team)})
+        file    (th/create-file* 1 {:profile-id (:id profile)
+                                    :project-id (:id project)})
+        run     (as-superuser profile)]
+    (db/update! th/*system* :project {:deleted-at (ct/now)} {:id (:id project)})
+    (let [out (run "get-files" {:project-id (:id project)})]
+      (t/is (= {:items []} out)
+            "the list hides children of deleted parents; get-file still resolves them"))))
+
 (t/deftest list-filters-by-deleted
   (let [{:keys [profile file]} (create-file! 1)
         _     (th/mark-file-deleted* {:id (:id file)})
@@ -293,3 +325,40 @@
       (t/is (= 1 (count (:items page2))))
       (t/is (not= (-> page1 :items first :id)
                   (-> page2 :items first :id))))))
+
+;; ----------------------------------------------------------------
+;; Detail
+;; ----------------------------------------------------------------
+
+(t/deftest detail-unlisted-session-rejected
+  (let [{:keys [profile file]} (create-file! 1)
+        run   (as-session #{} profile)]
+    (t/is (= :superuser-required
+             (caught-code #(run "get-file" {:id (:id file)}))))))
+
+(t/deftest detail-resolves-regardless-of-deleted-state
+  (let [profile (th/create-profile* 1)
+        team    (th/create-team* 1 {:profile-id (:id profile)})
+        project (th/create-project* 1 {:profile-id (:id profile)
+                                       :team-id (:id team)})
+        file    (th/create-file* 1 {:profile-id (:id profile)
+                                    :project-id (:id project)})
+        run     (as-superuser profile)]
+    (let [out (run "get-file" {:id (:id file)})]
+      (t/is (= (:id file) (:id out)))
+      (t/is (= (:name file) (:name out)))
+      (t/is (= (:id project) (:project-id out))))
+    ;; A stray live file under a deleted project still resolves:
+    ;; the admin must reach objects the list hides.
+    (db/update! th/*system* :project {:deleted-at (ct/now)} {:id (:id project)})
+    (let [out (run "get-file" {:id (:id file)})]
+      (t/is (= (:id file) (:id out))))
+    (th/mark-file-deleted* {:id (:id file)})
+    (let [out (run "get-file" {:id (:id file)})]
+      (t/is (some? (:deleted-at out))))))
+
+(t/deftest detail-unknown-id-gives-not-found
+  (let [{:keys [profile]} (create-file! 1)
+        run   (as-superuser profile)]
+    (t/is (= :file-not-found
+             (caught-code #(run "get-file" {:id (uuid/next)}))))))

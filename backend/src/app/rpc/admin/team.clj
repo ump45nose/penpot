@@ -16,12 +16,12 @@
    [app.common.schema :as-alias sm]
    [app.common.time :as ct]
    [app.common.types.team :as types.team]
-   [app.common.uuid :as uuid]
    [app.config :as cf]
    [app.db :as db]
    [app.features.object-cascade :as cascade]
    [app.msgbus :as mbus]
    [app.rpc :as-alias rpc]
+   [app.rpc.admin.list :as adml]
    [app.rpc.doc :as doc]
    [app.util.services :as sv]
    [cuerdas.core :as str]))
@@ -57,27 +57,24 @@
 (defn- build-teams-list-query
   "List teams newest-first with keyset pagination.
 
-  Lookup is by exact `id` only: substring search has no usable
-  index at PRO scale. The `:deleted` flag selects all (absent),
-  only deleted (true) or only live (false) rows."
+  Lookup is by exact `id` only; see `app.rpc.admin.list` for the
+  shared list contract."
   [{:keys [since since-id id deleted limit]
     :or {limit teams-default-limit}}]
   (let [clauses    (keep identity
-                         [(when (uuid? id)
+                         [(when id
                             {:where "t.id = ?"
                              :params [id]})
-                          (when (some? deleted)
-                            (if deleted
-                              {:where "t.deleted_at IS NOT NULL"
-                               :params []}
-                              {:where "t.deleted_at IS NULL"
-                               :params []}))
-                          (when since
-                            {:where "(t.created_at, t.id) < (?::timestamptz, ?::uuid)"
-                             :params [since (or since-id uuid/zero)]})])
+                          (adml/deleted-clause "t.deleted_at" deleted)
+                          (adml/since-clause "t.created_at" "t.id" since since-id)])
         sql-parts  (map :where clauses)
         sql-params (mapcat :params clauses)
         sql        (str "SELECT t.id, t.name, t.created_at, t.is_default, t.deleted_at, "
+                        ;; Two correlated subqueries per row (member count
+                        ;; plus owner email). Fine at admin page sizes; if
+                        ;; this list ever gets slow at PRO scale, measure
+                        ;; first — the fix is a join here, not another
+                        ;; created_at index.
                         "(SELECT count(*) FROM team_profile_rel WHERE team_id = t.id) AS total_members, "
                         "(SELECT p.email FROM team_profile_rel AS tpr "
                         "JOIN profile AS p ON (p.id = tpr.profile_id) "
@@ -96,20 +93,10 @@
    ::sm/params schema:get-teams-params
    ::sm/result schema:get-teams-result}
   [cfg params]
-  (let [limit            (min (or (:limit params) teams-default-limit)
-                              teams-max-limit)
-        params           (assoc params :limit (inc limit))
+  (let [[limit params]   (adml/with-fetch-limit params teams-default-limit teams-max-limit)
         [sql & sql-args] (build-teams-list-query params)
         rows             (db/exec! cfg (into [sql] sql-args))]
-    (if (seq rows)
-      (let [items     (->> (take limit rows)
-                           (mapv d/without-nils))
-            last-item (peek items)
-            has-more? (> (count rows) limit)]
-        {:items      items
-         :next-since (when has-more? (:created-at last-item))
-         :next-id    (when has-more? (:id last-item))})
-      {:items []})))
+    (adml/paginate rows limit)))
 
 (def schema:team
   [:merge schema:team-summary

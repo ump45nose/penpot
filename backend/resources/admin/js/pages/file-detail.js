@@ -1,10 +1,12 @@
 // File detail: metadata plus validate, repair, and export.
-// The file loads through an exact-id lookup, so no extra
-// detail command is needed. Validating paints the error table;
-// repairing asks to type the error count first (like the bulk
-// user delete) and snapshots by default; exporting is a plain
-// download link with the session cookie. Every value is painted
-// as text. An unknown id shows "not found" instead of failing.
+// The file resolves by id through `get-file`, regardless of its
+// own or its parents' deleted state: the admin must reach stray
+// objects the lists hide. (Lists keep hiding children of deleted
+// parents.) Validating paints the error table; repairing asks to
+// type the error count first (like the bulk user delete) and
+// snapshots by default; exporting is a plain download link with
+// the session cookie. Every value is painted as text. An unknown
+// id shows "not found" instead of failing.
 
 import { rpc, transferUrl } from "../api.js";
 import { renderHeader, paintDetailTitle } from "../components/header.js";
@@ -40,19 +42,17 @@ export function fileDetailPage(root, { id, onNavigate }) {
   load();
 
   async function load() {
-    let found;
+    let file;
     try {
-      found = await rpc("get-files", { id });
-    } catch {
+      file = await rpc("get-file", { id });
+    } catch (err) {
       body.replaceChildren();
-      body.textContent = "Could not load the file.";
-      showToast("Could not load the file.", "error");
-      return;
-    }
-    const file = (found.items ?? []).find((item) => item.id === id) ?? null;
-    if (file === null) {
-      body.replaceChildren();
-      body.textContent = "File not found.";
+      if (err.status === 404) {
+        body.textContent = "File not found.";
+      } else {
+        body.textContent = "Could not load the file.";
+        showToast("Could not load the file.", "error");
+      }
       return;
     }
     state.file = file;
@@ -77,11 +77,12 @@ export function fileDetailPage(root, { id, onNavigate }) {
         onRestored: async () => {
           let parentGone = false;
           try {
-            const found = await rpc("get-projects", { id: file.projectId });
-            const project = (found.items ?? []).find((item) => item.id === file.projectId) ?? null;
-            parentGone = project !== null && !!project.deletedAt;
+            const project = await rpc("get-project", { id: file.projectId });
+            parentGone = !!project.deletedAt;
           } catch {
-            parentGone = false;
+            // The project row itself is gone: definitely parent-gone,
+            // so say so instead of reloading into "not found".
+            parentGone = true;
           }
           if (parentGone) {
             body.replaceChildren();

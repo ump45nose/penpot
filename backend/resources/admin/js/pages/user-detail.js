@@ -7,7 +7,7 @@ import { rpc } from "../api.js";
 import { renderHeader, paintDetailTitle } from "../components/header.js";
 import { deletedNotice, restoreBlock } from "../components/restore.js";
 import { showToast } from "../components/toast.js";
-import { statusCell, statusOf } from "./users.js";
+import { statusCell, statusOf } from "../components/badges.js";
 import { backUrl } from "../url.js";
 
 const ROWS = [

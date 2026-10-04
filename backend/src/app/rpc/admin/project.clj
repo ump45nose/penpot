@@ -14,10 +14,10 @@
    [app.common.exceptions :as ex]
    [app.common.schema :as-alias sm]
    [app.common.time :as ct]
-   [app.common.uuid :as uuid]
    [app.db :as db]
    [app.features.object-cascade :as cascade]
    [app.rpc :as-alias rpc]
+   [app.rpc.admin.list :as adml]
    [app.rpc.doc :as doc]
    [app.util.services :as sv]
    [cuerdas.core :as str]))
@@ -56,28 +56,19 @@
 (defn- build-projects-list-query
   "List projects newest-first with keyset pagination.
 
-  Lookup is by exact `id` only: substring search has no usable
-  index at PRO scale. The `:deleted` flag selects all (absent),
-  only deleted (true) or only live (false) rows; the parent-team
-  guard stays regardless."
+  Lookup is by exact `id` only; see `app.rpc.admin.list` for the
+  shared list contract. The parent-team guard stays regardless."
   [{:keys [since since-id id team-id deleted limit]
     :or {limit projects-default-limit}}]
   (let [clauses   (keep identity
-                        [(when (uuid? id)
+                        [(when id
                            {:where "p.id = ?"
                             :params [id]})
-                         (when (uuid? team-id)
+                         (when team-id
                            {:where "p.team_id = ?"
                             :params [team-id]})
-                         (when (some? deleted)
-                           (if deleted
-                             {:where "p.deleted_at IS NOT NULL"
-                              :params []}
-                             {:where "p.deleted_at IS NULL"
-                              :params []}))
-                         (when since
-                           {:where "(p.created_at, p.id) < (?::timestamptz, ?::uuid)"
-                            :params [since (or since-id uuid/zero)]})])
+                         (adml/deleted-clause "p.deleted_at" deleted)
+                         (adml/since-clause "p.created_at" "p.id" since since-id)])
         sql-parts  (map :where clauses)
         sql-params (mapcat :params clauses)
         sql        (str "SELECT p.id, p.name, p.team_id, "
@@ -102,20 +93,38 @@
    ::sm/params schema:get-projects-params
    ::sm/result schema:get-projects-result}
   [cfg params]
-  (let [limit            (min (or (:limit params) projects-default-limit)
-                              projects-max-limit)
-        params           (assoc params :limit (inc limit))
+  (let [[limit params]   (adml/with-fetch-limit params projects-default-limit projects-max-limit)
         [sql & sql-args] (build-projects-list-query params)
         rows             (db/exec! cfg (into [sql] sql-args))]
-    (if (seq rows)
-      (let [items     (->> (take limit rows)
-                           (mapv d/without-nils))
-            last-item (peek items)
-            has-more? (> (count rows) limit)]
-        {:items      items
-         :next-since (when has-more? (:created-at last-item))
-         :next-id    (when has-more? (:id last-item))})
-      {:items []})))
+    (adml/paginate rows limit)))
+
+(def schema:get-project-params
+  [:map
+   [:id ::sm/uuid]])
+
+(def ^:private sql:project
+  (str "SELECT p.id, p.name, p.team_id, "
+       "t.name AS team_name, "
+       "p.is_default, "
+       "(SELECT count(*) FROM file AS f "
+       "WHERE f.project_id = p.id "
+       "AND f.deleted_at IS NULL) AS total_files, "
+       "p.created_at, p.modified_at, p.deleted_at "
+       "FROM project AS p "
+       "JOIN team AS t ON (t.id = p.team_id) "
+       "WHERE p.id = ?"))
+
+(sv/defmethod ::get-project
+  {::doc/added "2.20"
+   ::rpc/perms #{"superuser"}
+   ::sm/params schema:get-project-params
+   ::sm/result schema:project-summary}
+  [cfg {:keys [id]}]
+  (or (some-> (db/exec-one! cfg [sql:project id])
+              (d/without-nils))
+      (ex/raise :type :not-found
+                :code :project-not-found
+                :hint (str "project " id " not found"))))
 
 (def schema:restore-project-params
   [:map {:title "restore-project"}
